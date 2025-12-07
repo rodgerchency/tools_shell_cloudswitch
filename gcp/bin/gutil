@@ -1,0 +1,80 @@
+#!/bin/bash
+# gutil - GCP Utility CLI (fzf interactive version)
+# DESC: Interactive CLI to run GCP-specific and shared K8S commands
+
+set -euo pipefail
+
+SCRIPT_DIR=$(dirname "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")
+
+# 載入共用工具
+source "$SCRIPT_DIR/common/utils.sh"
+
+# 檢查必要命令
+for cmd in gcloud kubectl fzf; do
+    check_command "$cmd"
+done
+
+# 指令目錄陣列
+CMD_DIRS=(
+    "$SCRIPT_DIR/gcp/bin/cmds"
+    "$SCRIPT_DIR/common/bin/cmds"
+)
+
+# 顯示加載的目錄
+# echo "🔹 CMD_DIRS:"
+# for d in "${CMD_DIRS[@]}"; do
+#     echo "  $d"
+# done
+
+# 收集 commands 和描述
+menu=()
+for dir in "${CMD_DIRS[@]}"; do
+    [[ ! -d "$dir" ]] && continue
+    shopt -s nullglob
+    for f in "$dir"/*.sh; do
+        [[ ! -f "$f" ]] && continue
+        cmd=$(basename "$f" .sh)
+        desc=$(grep -m1 '^# DESC:' "$f" | cut -d':' -f2- | xargs)
+        [[ -z "$desc" ]] && desc="(no description)"
+        menu+=("$cmd|$desc|$f")
+        # debug log
+        # echo "DEBUG: Added command -> $cmd|$desc|$f"
+    done
+    shopt -u nullglob
+done
+
+# 如果沒有找到任何指令
+if [[ ${#menu[@]} -eq 0 ]]; then
+    warn "未找到任何可執行指令。"
+    return 0
+fi
+
+# 顯示選單
+echo ""
+echo "🔧 GCP Utility CLI"
+echo "========================================="
+echo "請選擇要執行的功能："
+
+# fzf 只顯示名稱和描述，但保留完整欄位
+selected=$(printf "%s\n" "${menu[@]}" | \
+    fzf --ansi --height=15 --border --prompt="Select > " --info=inline --with-nth=1,2)
+
+# 防止 Ctrl+C 或無選擇時直接退出
+[[ -z "$selected" ]] && { warn "已取消。"; return 0; }
+
+# 解析選擇
+cmd_name=$(echo "$selected" | awk -F'|' '{print $1}')
+cmd_path=$(echo "$selected" | awk -F'|' '{print $3}')
+
+# debug log
+# echo "DEBUG: cmd_name=$cmd_name"
+# echo "DEBUG: cmd_path=$cmd_path"
+
+[[ ! -f "$cmd_path" ]] && { error "找不到指令檔案：$cmd_path"; return 1; }
+
+echo ""
+info "🚀 執行功能：${cmd_name}"
+echo "-----------------------------------------"
+
+# 執行指令
+bash "$cmd_path"

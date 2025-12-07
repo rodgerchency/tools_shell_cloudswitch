@@ -1,0 +1,103 @@
+#!/bin/bash
+# autil - AWS Utility CLI (fzf interactive version)
+# DESC: Interactive CLI to run AWS-specific and shared K8S commands
+
+SCRIPT_DIR=$(dirname "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")
+# 載入共用工具
+source "$SCRIPT_DIR/common/utils.sh"
+
+IS_SOURCED=false
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+  IS_SOURCED=true
+fi
+
+# 指令目錄陣列
+CMD_DIRS=(
+    "$SCRIPT_DIR/aws/bin/cmds"
+    "$SCRIPT_DIR/common/bin/cmds"
+)
+
+# 顯示加載的目錄
+# echo "🔹 CMD_DIRS:"
+# for d in "${CMD_DIRS[@]}"; do
+#     echo "  $d"
+# done
+
+# 收集 commands 和描述
+menu=()
+# 迭代所有的指令目錄
+for dir in "${CMD_DIRS[@]}"; do
+    # 檢查目錄是否存在
+    if [[ ! -d "$dir" ]]; then
+        warn "Commands directory not found: $dir"
+        continue
+    fi
+    
+    # 使用 for 迴圈來遍歷目錄下的所有 .sh 檔案
+    for f in "$dir"/*.sh; do
+        # 檢查檔案是否真實存在 (避免找不到時遍歷到 '*.sh')
+        [[ ! -f "$f" ]] && continue 
+
+        # 取得指令名稱 (例如：setup_aws_profile)
+        cmd=$(basename "$f" .sh)
+        
+        # 取得描述，使用 grep/cut/xargs 保持不變
+        desc=$(grep -m1 '^# DESC:' "$f" | cut -d':' -f2- | xargs)
+        
+        # 如果描述為空，設定預設值
+        [[ -z "$desc" ]] && desc="(no description)"
+        
+        # 將結果存入陣列 (指令名|描述|路徑)
+        menu+=("$cmd|$desc|$f")
+    done
+done
+
+# 如果沒有找到任何指令
+if [[ ${#menu[@]} -eq 0 ]]; then
+    warn "未找到任何可執行指令。"
+    return 0
+fi
+
+# 顯示選單
+echo ""
+echo "🔧 AWS Utility CLI"
+echo "========================================="
+echo "請選擇要執行的功能："
+
+# fzf 只顯示第一、第二欄 (name & desc)，但保留第三欄 (path)
+selected=$(printf "%s\n" "${menu[@]}" | \
+  fzf --ansi --height=15 --border --prompt="Select > " --info=inline --with-nth=1,2)
+
+# 防止 Ctrl+C 或無選擇時直接退出
+[[ -z "$selected" ]] && { warn "已取消。"; return 0; }
+
+# 解析選擇
+cmd_name=$(echo "$selected" | awk -F'|' '{print $1}')
+cmd_path=$(echo "$selected" | awk -F'|' '{print $3}')
+
+# debug log
+echo "DEBUG: cmd_name=$cmd_name"
+echo "DEBUG: cmd_path=$cmd_path"
+
+[[ ! -f "$cmd_path" ]] && { error "找不到指令檔案：$cmd_path"; return 1; }
+
+echo ""
+info "執行功能：${cmd_name}"
+echo "-----------------------------------------"
+
+# 讀取 MODE，預設 NORMAL
+mode=$(grep -m1 '^# MODE:' "$cmd_path" | cut -d':' -f2 | xargs)
+mode=${mode:-NORMAL}
+
+if [[ "$mode" == "EXPORT" ]]; then
+  if [[ "$IS_SOURCED" == true ]]; then
+    result=$(bash "$cmd_path")
+    eval "$result"
+    success "環境變數已套用"
+  else
+    error "此指令需要使用: source autil"
+    return 1
+  fi
+else
+  bash "$cmd_path"
+fi
