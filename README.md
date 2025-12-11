@@ -23,6 +23,8 @@ gutil
 
 ```
 
+###  gutil 互動選單 
+![gutil 互動選單](/assets/gutil_menu.png)
 
 ### AWS
 
@@ -42,7 +44,8 @@ source ~/.zshrc
 autil
 
 ```
-
+### autil 互動選單 
+![autil 互動選單](/assets/autil_menu.png)
 
 ## 專案結構
 ```bash
